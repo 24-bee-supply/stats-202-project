@@ -1,0 +1,369 @@
+---
+title: "Stats 202 Analysis"
+author: "Your Name"
+date: today
+format: 
+  html:
+    toc: true
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+## Code
+
+```{r}
+#| message: false
+#| warning: false
+
+library(tidyverse)
+library(ggplot2)
+library(gridExtra)
+library(corrplot)
+
+# Load data once
+train <- read.csv("../data/training.csv")
+
+# Define transformations once
+skewed_vars <- c("sig", "sig3", "sig4", "sig5", "sig6")
+
+# Function to prepare data
+prepare_data <- function(data) {
+  # Remove unique identifiers
+  data_cleaned <- data %>%
+    select(-id, -query_id)
+  
+  # Apply log transformation to skewed variables
+  data_transformed <- data_cleaned
+  for (var in skewed_vars) {
+    if (var %in% names(data_transformed)) {
+      data_transformed[[paste0("log_", var)]] <- log1p(data_transformed[[var]])
+    }
+  }
+  
+  # Convert relevance to factor
+  data_transformed$relevance_factor <- as.factor(data_transformed$relevance)
+  
+  return(data_transformed)
+}
+
+# Prepare data once
+train_transformed <- prepare_data(train)
+
+# Get feature columns (excluding relevance and original skewed variables)
+feature_cols <- names(train_transformed)[!names(train_transformed) %in% c("relevance", "relevance_factor", skewed_vars)]
+```
+
+
+## Selection
+
+### Summary
+
+I conduct visualizations before preprocessing. Some initial data exploration shows:
+- The dependent variable is not imbalanced. 
+- `id` and `query_id` are unique identifiers.
+- `url_id` is not clearly a unique identifier because the distribution of histogram buckets is not uniform. 
+- `is_homepage` is a binary variable. 
+- `query_length` is a count.
+- `sig`, `sig3`, `sig4`, `sig5`, `sig6` are all highly skewed.
+
+I remove unique identifiers (but not `url_id`, which is ambiguous at this stage) from the training data because they will over-fit the data. 
+
+I visualize the density of each predictor grouped by dependent variable. The overlay of the plots helps visualize whether the variable of interest is systematically higher for certain values of the predictors. To make the contrast more conspicuous, I log-transform the skewed variables. I also group predictor values into deciles and condition on the dependent variable. 
+
+For completness I investigate multicollinearity but find no significant $(|r| > .8)$ correlations. Variance inflation is also more germane to inference than to prediction; the point estimates with multicollinearity do not change even while standard errors increase. 
+
+### Visualizations
+
+#### Distributions of Variables
+
+```{r}
+#| fig-width: 12
+#| fig-height: 20
+
+# Create simple histograms for each feature
+plots <- list()
+
+for (col in names(train)) {
+  p <- ggplot(train, aes(x = .data[[col]])) +
+    geom_histogram(bins = 50, fill = "steelblue", color = "black", alpha = 0.7) +
+    labs(title = paste("Distribution of", col),
+         x = col,
+         y = "Count") +
+    theme_minimal()
+  
+  plots[[col]] <- p
+}
+
+# Display plots in a grid (3 columns)
+grid.arrange(grobs = plots, ncol = 3)
+```
+
+#### Histogram of Select Predictors Conditioned on Dependent Variable
+
+```{r}
+#| fig-width: 12
+#| fig-height: 20
+
+# Function to create plot based on variable type
+create_conditioned_plot <- function(data, col, plot_type = "density") {
+  n <- nrow(data)
+  
+  if (col == "is_homepage") {
+    # Binary variable
+    p <- ggplot(data, aes(x = as.factor(.data[[col]]), fill = relevance_factor)) +
+      geom_bar(aes(y = after_stat(count)/n), position = "dodge", alpha = 0.7) +
+      labs(title = paste(col, "by Relevance"),
+           x = col,
+           y = "Proportion",
+           fill = "Relevance")
+    
+  } else if (col == "query_length") {
+    # Count variable
+    p <- ggplot(data, aes(x = factor(.data[[col]]), fill = relevance_factor)) +
+      geom_bar(aes(y = after_stat(count)/n), position = "dodge", alpha = 0.7) +
+      labs(title = paste(col, "by Relevance"),
+           x = "Query Length (number of words)",
+           y = "Proportion",
+           fill = "Relevance")
+    
+  } else if (col == "log_sig6") {
+    # Special case with many zeros
+    data_binary <- data %>%
+      mutate(value_category = ifelse(.data[[col]] == 0, "Zero (sig6=0)", "Non-zero (sig6>0)"))
+    
+    p <- ggplot(data_binary, aes(x = value_category, fill = relevance_factor)) +
+      geom_bar(aes(y = after_stat(count)/n), position = "dodge", alpha = 0.7) +
+      labs(title = paste(col, "by Relevance"),
+           subtitle = "Comparing zero vs non-zero values",
+           x = "",
+           y = "Proportion",
+           fill = "Relevance")
+    
+  } else if (plot_type == "density") {
+    # Continuous variables - density plot
+    p <- ggplot(data, aes(x = .data[[col]], fill = relevance_factor)) +
+      geom_density(alpha = 0.5) +
+      labs(title = paste(col, "by Relevance"),
+           x = col,
+           y = "Density",
+           fill = "Relevance")
+    
+  } else {
+    # Continuous variables - histogram
+    p <- ggplot(data, aes(x = .data[[col]], fill = relevance_factor)) +
+      geom_histogram(aes(y = after_stat(count)/n), position = "identity", alpha = 0.5, bins = 30) +
+      labs(title = paste(col, "by Relevance"),
+           x = col,
+           y = "Proportion",
+           fill = "Relevance")
+  }
+  
+  # Apply common theme
+  p + theme_minimal() + scale_fill_brewer(palette = "Set2")
+}
+
+# Create all plots
+plots <- lapply(feature_cols, function(col) create_conditioned_plot(train_transformed, col, "density"))
+
+# Display plots in grid
+grid.arrange(grobs = plots, ncol = 2)
+```
+
+#### Proportions (Bayes) of Select Predictors Conditioned on Dependent Variables Deciles 
+
+```{r}
+#| fig-width: 12
+#| fig-height: 20
+
+# Function to create binned proportion plots with overall proportion line
+create_binned_plot <- function(data, col, n_bins = 10) {
+  
+  # Calculate overall proportion of relevance = 1
+  overall_prop_1 <- mean(data$relevance == 1)
+  
+  if (col == "is_homepage") {
+    # Binary variable
+    prop_data <- data %>%
+      group_by(.data[[col]], relevance_factor) %>%
+      summarise(count = n()) %>%
+      group_by(.data[[col]]) %>%
+      mutate(prop = count / sum(count))
+    
+    p <- ggplot(prop_data, aes(x = as.factor(.data[[col]]), y = prop, fill = relevance_factor)) +
+      geom_bar(stat = "identity", position = "dodge", alpha = 0.7) +
+      geom_hline(yintercept = overall_prop_1, linetype = "dashed", color = "red", size = 0.8) +
+      labs(title = paste(col, "by Relevance"), x = col)
+    
+  } else if (col == "query_length") {
+    # Count variable
+    prop_data <- data %>%
+      group_by(.data[[col]], relevance_factor) %>%
+      summarise(count = n()) %>%
+      group_by(.data[[col]]) %>%
+      mutate(prop = count / sum(count))
+    
+    p <- ggplot(prop_data, aes(x = factor(.data[[col]]), y = prop, fill = relevance_factor)) +
+      geom_bar(stat = "identity", position = "dodge", alpha = 0.7) +
+      geom_hline(yintercept = overall_prop_1, linetype = "dashed", color = "red", size = 0.8) +
+      labs(title = paste(col, "by Relevance"), x = "Query Length (number of words)")
+    
+  } else if (col == "log_sig6") {
+    # Special case with many zeros
+    data_binary <- data %>%
+      mutate(value_category = ifelse(.data[[col]] == 0, "Zero (sig6=0)", "Non-zero (sig6>0)"))
+    
+    prop_data <- data_binary %>%
+      group_by(value_category, relevance_factor) %>%
+      summarise(count = n()) %>%
+      group_by(value_category) %>%
+      mutate(prop = count / sum(count))
+    
+    p <- ggplot(prop_data, aes(x = value_category, y = prop, fill = relevance_factor)) +
+      geom_bar(stat = "identity", position = "dodge", alpha = 0.7) +
+      geom_hline(yintercept = overall_prop_1, linetype = "dashed", color = "red", size = 0.8) +
+      labs(title = paste(col, "by Relevance"),
+           subtitle = "Comparing zero vs non-zero values",
+           x = "")
+    
+  } else {
+    # Continuous variables - create bins
+    data_binned <- data %>%
+      mutate(bin = cut(.data[[col]], breaks = n_bins, include.lowest = TRUE))
+    
+    prop_data <- data_binned %>%
+      group_by(bin, relevance_factor) %>%
+      summarise(count = n()) %>%
+      group_by(bin) %>%
+      mutate(prop = count / sum(count)) %>%
+      filter(!is.na(bin))
+    
+    p <- ggplot(prop_data, aes(x = bin, y = prop, fill = relevance_factor)) +
+      geom_bar(stat = "identity", position = "dodge", alpha = 0.7) +
+      geom_hline(yintercept = overall_prop_1, linetype = "dashed", color = "red", size = 0.8) +
+      labs(title = paste(col, "by Relevance"), x = col) +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 8))
+  }
+  
+  # Apply common styling
+  p + 
+    labs(y = "Proportion", fill = "Relevance") +
+    theme_minimal() +
+    scale_fill_brewer(palette = "Set2") +
+    annotate("text", x = Inf, y = overall_prop_1, 
+             label = paste0("Overall p = ", round(overall_prop_1, 1)), 
+             hjust = 1.1, vjust = -0.5, size = 3, color = "red")
+}
+
+# Create all plots
+plots <- lapply(feature_cols, function(col) create_binned_plot(train_transformed, col))
+
+# Display plots in grid
+grid.arrange(grobs = plots, ncol = 2)
+```
+
+#### Correlation Plot
+
+```{r}
+#| fig-width: 10
+#| fig-height: 10
+#| message: false
+#| warning: false
+
+library(corrplot)
+
+# Select only numeric columns and remove any with issues
+numeric_cols <- train_transformed[sapply(train_transformed, is.numeric)]
+
+# Remove the original skewed variables if they exist
+cols_to_remove <- c("sig", "sig3", "sig4", "sig5", "sig6")
+numeric_cols <- numeric_cols[!names(numeric_cols) %in% cols_to_remove]
+
+# Calculate correlation matrix
+cor_matrix <- cor(numeric_cols, use = "complete.obs")
+
+# Create correlation plot
+corrplot(cor_matrix, 
+         method = "color",
+         type = "upper",
+         order = "hclust",
+         tl.cex = 0.7,
+         tl.col = "black",
+         tl.srt = 45,
+         addCoef.col = "black",
+         number.cex = 0.5,
+         col = colorRampPalette(c("#FC8D62", "white", "#66C2A5"))(100))
+```
+
+## Pre-processing
+
+I code `is_homepage` as an unordered factor. 
+
+I code `query_length` as an unordered factor as well. The decile visualizaiton revealed that the proportion of relevant variables does not increase linearly in `query_length`, and it is therefore appropriate to break the ordinal scale to accomodate unequal distances between each coutn level. 
+
+`url_id` will need to be handled differently. The numeric scale is not sensible but neither are factors, which would lead to over-fitting. Ultimately, it seems risky to include data that may be idiosyncratic, so I exclude it for conservatism. 
+
+There are no missing values. 
+
+```{r}
+## Pre-processing
+
+# Function to preprocess data
+preprocess_data <- function(data) {
+ 
+ # Remove unique identifiers
+ data_processed <- data %>%
+   select(-id, -query_id)
+ 
+ # Remove url_id (idiosyncratic, risk of overfitting)
+ data_processed <- data_processed %>%
+   select(-url_id)
+ 
+ # Code is_homepage as unordered factor
+ data_processed$is_homepage <- as.factor(data_processed$is_homepage)
+ 
+ # Code query_length as unordered factor 
+ # (decile visualization revealed non-linear relationship with relevance)
+ data_processed$query_length <- as.factor(data_processed$query_length)
+ 
+ return(data_processed)
+}
+
+# Apply preprocessing
+train_processed <- preprocess_data(train)
+```
+
+## Transformation
+
+I do the following transformations: 
+
+- Log-transform skewed variables: `sig3, sig4, sig5, sig6`. 
+- Standardize all numeric variables in anticipation of using more flexible modeling strategies. 
+
+
+```{r}
+# Create a copy of the processed data
+train_transformed <- train_processed
+
+# Log-transform skewed variables: sig3, sig4, sig5
+train_transformed$log_sig3 <- log1p(train_transformed$sig3)
+train_transformed$log_sig4 <- log1p(train_transformed$sig4)
+train_transformed$log_sig5 <- log1p(train_transformed$sig5)
+train_transformed$log_sig5 <- log1p(train_transformed$sig6)
+
+train_transformed <- train_transformed %>%
+  select(-sig3, -sig4, -sig5, -sig6)
+
+# Identify numeric variables to standardize (excluding relevance and factors)
+numeric_vars <- names(train_transformed)[sapply(train_transformed, is.numeric)]
+numeric_vars <- numeric_vars[numeric_vars != "relevance"]  # Don't standardize the target
+
+# Standardize all numeric variables
+for (var in numeric_vars) {
+  train_transformed[[var]] <- scale(train_transformed[[var]])[,1]
+}
+
+# Check the structure of the final transformed data
+str(train_transformed)
+```
