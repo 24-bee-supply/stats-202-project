@@ -1,0 +1,27 @@
+library(randomForest)
+library(caret)
+library(doParallel)
+
+set.seed(202)
+
+cl <- makeCluster(11)  
+registerDoParallel(cl)
+
+# Prepare data
+X_train <- train_transformed %>% select(-relevance)
+y_train <- as.factor(train_transformed$relevance)
+
+# Run Random Forest with CV
+rf_model <- train(
+  x = X_train,
+  y = y_train,
+  method = "rf",
+  trControl = trainControl(method = "cv", number = 10),
+  ntree = 500,
+  tuneLength = 5  # Tests 5 different mtry values
+)
+
+# Save model
+saveRDS(rf_model, "rf_model.rds")
+
+stopCluster(cl)
