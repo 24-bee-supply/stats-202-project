@@ -22,6 +22,41 @@ ul.task-list li input[type="checkbox"] {
   margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
   vertical-align: middle;
 }
+/* CSS for syntax highlighting */
+html { -webkit-text-size-adjust: 100%; }
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+  { counter-reset: source-line 0; }
+pre.numberSource code > span
+  { position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+  { content: counter(source-line);
+    position: relative; left: -1em; text-align: right; vertical-align: baseline;
+    border: none; display: inline-block;
+    -webkit-touch-callout: none; -webkit-user-select: none;
+    -khtml-user-select: none; -moz-user-select: none;
+    -ms-user-select: none; user-select: none;
+    padding: 0 4px; width: 4em;
+  }
+pre.numberSource { margin-left: 3em;  padding-left: 4px; }
+div.sourceCode
+  {   }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+}
 </style>
 
 
@@ -79,9 +114,11 @@ window.Quarto = {
     <h2 id="toc-title">Table of contents</h2>
    
   <ul>
-  <li><a href="#selection" id="toc-selection" class="nav-link active" data-scroll-target="#selection">Selection</a>
+  <li><a href="#summary" id="toc-summary" class="nav-link active" data-scroll-target="#summary">Summary</a></li>
+  <li><a href="#selection" id="toc-selection" class="nav-link" data-scroll-target="#selection">Selection</a>
   <ul class="collapse">
   <li><a href="#visualizations" id="toc-visualizations" class="nav-link" data-scroll-target="#visualizations">Visualizations</a></li>
+  <li><a href="#url-id" id="toc-url-id" class="nav-link" data-scroll-target="#url-id">URL ID</a></li>
   </ul></li>
   <li><a href="#pre-processing" id="toc-pre-processing" class="nav-link" data-scroll-target="#pre-processing">Pre-processing</a></li>
   <li><a href="#transformation" id="toc-transformation" class="nav-link" data-scroll-target="#transformation">Transformation</a></li>
@@ -91,6 +128,7 @@ window.Quarto = {
   <li><a href="#lasso" id="toc-lasso" class="nav-link" data-scroll-target="#lasso">LASSO</a></li>
   <li><a href="#knn" id="toc-knn" class="nav-link" data-scroll-target="#knn">KNN</a></li>
   <li><a href="#random-forests" id="toc-random-forests" class="nav-link" data-scroll-target="#random-forests">Random Forests</a></li>
+  <li><a href="#xgboost" id="toc-xgboost" class="nav-link" data-scroll-target="#xgboost">XGBoost</a></li>
   </ul></li>
   <li><a href="#testing" id="toc-testing" class="nav-link" data-scroll-target="#testing">Testing</a></li>
   </ul>
@@ -129,6 +167,9 @@ window.Quarto = {
 </header>
 
 
+<section id="summary" class="level2">
+<h2 class="anchored" data-anchor-id="summary">Summary</h2>
+</section>
 <section id="selection" class="level2">
 <h2 class="anchored" data-anchor-id="selection">Selection</h2>
 <p>I conduct visualizations first. Some initial data exploration shows:</p>
@@ -140,9 +181,8 @@ window.Quarto = {
 <li><code>query_length</code> is a count.</li>
 <li><code>sig3</code>, <code>sig4</code>, <code>sig5</code>, <code>sig6</code> are all highly skewed.</li>
 </ul>
-<p>I remove unique identifiers (but not <code>url_id</code>, which is ambiguous at this stage) from the training data because they will over-fit the data.</p>
-<p>I visualize the density of each predictor grouped by dependent variable. The overlay of the plots helps visualize whether the variable of interest is systematically higher for certain values of the predictors. To make the contrast more conspicuous, I log-transform the skewed variables. I also group predictor values into deciles and condition on the dependent variable.</p>
-<p>For completness I investigate multicollinearity but find no significant <span class="math inline">\((|r| &gt; .8)\)</span> correlations. Variance inflation is also more germane to inference than to prediction; the point estimates with multicollinearity do not change even while standard errors increase.</p>
+<p>I visualize the density of each predictor grouped by dependent variable. The overlay of the plots helps visualize whether the variable of interest is systematically higher for certain values of the predictors. To make the contrast more conspicuous, I log-transform the skewed variables. I also group predictor values into deciles and condition on the dependent variable. <code>sig2</code> appears conspicuously useful as a separator of the dependent variable.</p>
+<p>For completeness I investigate multicollinearity but find no significant <span class="math inline">\((|r| &gt; .8)\)</span> correlations. Variance inflation is also more germane to inference than to prediction; the point estimates with multicollinearity do not change even while standard errors increase.</p>
 <section id="visualizations" class="level3">
 <h3 class="anchored" data-anchor-id="visualizations">Visualizations</h3>
 <section id="distributions-of-variables" class="level4">
@@ -193,12 +233,41 @@ window.Quarto = {
 </div>
 </div>
 </section>
+<section id="query-length" class="level4">
+<h4 class="anchored" data-anchor-id="query-length">Query Length</h4>
+<p>Longer query lengths have a very high proportion of relevant entries. I calculate standard errors to see whether these trends are statistically significant or may result in over-fitting.</p>
+<div class="cell">
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="bue-alex-final-project_files/figure-html/unnamed-chunk-5-1.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+</div>
+<p>They are not statistically significant.</p>
+</section>
+</section>
+<section id="url-id" class="level3">
+<h3 class="anchored" data-anchor-id="url-id">URL ID</h3>
+<div class="cell">
+<div class="cell-output cell-output-stdout">
+<pre><code>Crossing point at URL ID: 29879 </code></pre>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="bue-alex-final-project_files/figure-html/unnamed-chunk-6-1.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+</div>
 </section>
 </section>
 <section id="pre-processing" class="level2">
 <h2 class="anchored" data-anchor-id="pre-processing">Pre-processing</h2>
 <p>I code <code>is_homepage</code> as an unordered factor.</p>
-<p>I code <code>query_length</code> as an unordered factor as well. The decile visualizaiton revealed that the proportion of relevant variables does not increase linearly in <code>query_length</code>, and it is therefore appropriate to break the ordinal scale to accomodate unequal distances between each coutn level.</p>
+<p>I remove <code>query_length</code> because the most predictive lengths are also the most rare. It is sensible to represent <code>query_length</code> as a factor variable, because the proportion of relevance does not appear to increase linearly, but factors introduce various challenges with prediction. If some factor is not present in the future data, then our trained model will not work. A compromise is necessary.</p>
 <p><code>url_id</code> will need to be handled differently. The numeric scale is not sensible but neither are factors, which would lead to over-fitting. Ultimately, it seems risky to include data that may be idiosyncratic, so I exclude it for conservatism.</p>
 <p><code>sig2, sig7, and sig8</code> appear to have regular drop-offs in the histograms. This is an artifact of the measurement scale, which records values in increments of <span class="math inline">\(0.01\)</span>. Some histogram bins therefore align with the allowed values and receive higher counts, while others fall between these values and receive few or none, producing the visible pattern of regular dips. This is not a problem for analysis.</p>
 <p>There are no missing values.</p>
@@ -207,10 +276,15 @@ window.Quarto = {
 <h2 class="anchored" data-anchor-id="transformation">Transformation</h2>
 <p>I apply the following transformations:</p>
 <ul>
-<li>Log-transform skewed variables (<code>sig3, sig4, sig5</code>) for linear models.</li>
-<li>I use <code>log1p</code> from base R, which adds a constant of <span class="math inline">\(1\)</span> to each value to avoid issues with zeros.</li>
-<li>The loss of the usual interpretability - where natural logs approximate percentage changes - is not important here.</li>
+<li>Log-transform skewed variables (<code>sig3, sig4, sig5</code>) for linear models.
+<ul>
+<li>This linearizes for LASSO, and monotone transformations are unlikely to hurt more flexible modeling strategies.</li>
+<li>I use <code>log1p</code> from base R, which adds a constant of <span class="math inline">\(1\)</span> to each value to avoid issues with zeros. The loss of the usual interpretability - where natural logs approximate percentage changes - is not important here.</li>
+</ul></li>
 <li>Two-part transformation for <code>sig6</code>: create a dummy variable indicating zero values, then log-transform the positive values. This preserves the information in zeros (which show a higher proportion of relevance) while making the positive values less skewed.</li>
+<li>I add binary variables for <code>query_length</code> 1 and 2, which are statistically significant according to my earlier visualization.</li>
+<li>I add a factor variable for <code>url_id</code> below <span class="math inline">\(30000\)</span>, the cutoff at which mean relevance was highest.</li>
+<li>After transforming, I remove <code>url_id</code> and other variables.</li>
 </ul>
 <p>Note that I do not standardize at this stage. Since I will later use cross-validation, scaling of the variables should happen within each fold where appropriate.</p>
 </section>
@@ -219,18 +293,33 @@ window.Quarto = {
 <p>I will use 10-fold cross-validation to estimate generalization error for each modeling strategy. In all cases, I will evaluate model accuracy, picking the tuning parameters and then the strategy which maximizes accuracy.</p>
 <p>My modeling strategies are:</p>
 <ol type="1">
-<li>LASSO logistic regression: Suitable for correlated predictors and sparse data to reduce variance. Factor variables are one-hot encoded. The tuning variable is <span class="math inline">\(\lambda\)</span>, imposing a progressively higher penalty that shrinks coefficients towards zero.</li>
+<li>LASSO logistic regression: Suitable for correlated predictors and sparse data to reduce variance. Factor variables are one-hot encoded. The tuning variable is <span class="math inline">\(\lambda\)</span>, imposing a progressively higher penalty that shrinks coefficients towards zero. I use a “kitchen-sink” approach with all interactions.</li>
 <li>KNN: A simple, intuitive method that makes minimal assumptions about the data’s functional form. Factor variables are one-hot encoded; the curse of dimensionality is not salient given the relatively low dimensions. The tuning variable is <span class="math inline">\(k\)</span>, or the number of nearest neighbors.</li>
-<li>Random Forests: Well-suited to low-dimensional tabular data and capable of capturing complex, nonlinear interactions automatically without needing the earlier transformations; especially attractive given apparent splines in some variables (<code>sig1</code>). Factor variables are not one-hot encoded because one-hot encoding increases the number of predictors, resulting in over-representation of factor variables by random forests. The tuning variable is <code>mtry</code>, or the number of predictors randomly sampled from all potential predictors. Due to computational constraints, I do not tune the number or size of tree nodes.</li>
+<li>Random Forests: Well-suited to low-dimensional tabular data and capable of capturing complex, nonlinear interactions automatically without needing the earlier transformations; especially attractive given apparent splines in some variables (<code>sig1</code>). Factor variables are not one-hot encoded because one-hot encoding increases the number of predictors, resulting in over-representation of factor variables by random forests. The tuning parameters are below:</li>
 </ol>
-<p>These methods each have the benefit of being relatively interpretable. Many models in the <code>caret</code> package automatically pick a variety of tuning parameters. I use this approach except in the case of KNN, where the default <span class="math inline">\(k\)</span> values were too low and therefore needed to be manually adjusted up.</p>
+<div class="sourceCode" id="cb2"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a>rf_grid <span class="ot">&lt;-</span> <span class="fu">expand.grid</span>(</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">mtry =</span> <span class="fu">c</span>(<span class="dv">2</span>, <span class="dv">4</span>, <span class="dv">6</span>, default_mtry),</span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">splitrule =</span> <span class="st">"gini"</span>,</span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">min.node.size =</span> <span class="fu">c</span>(<span class="dv">1</span>, <span class="dv">5</span>, <span class="dv">10</span>)</span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<ol start="4" type="1">
+<li>I also use boosting with XGBoost. The tuning parameters are below:</li>
+</ol>
+<div class="sourceCode" id="cb3"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a>params <span class="ot">&lt;-</span> <span class="fu">list</span>(</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">objective =</span> <span class="st">"binary:logistic"</span>,</span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">eval_metric =</span> <span class="st">"error"</span>,</span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">max_depth =</span> <span class="dv">6</span>,</span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">eta =</span> <span class="fl">0.1</span>,</span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">subsample =</span> <span class="fl">0.8</span>,</span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">colsample_bytree =</span> <span class="fl">0.8</span></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </section>
 <section id="interpretationevaluation" class="level2">
 <h2 class="anchored" data-anchor-id="interpretationevaluation">Interpretation/Evaluation</h2>
-<p>Random forests performs the best, having the highest accuracy, but all models perform very similarly.</p>
-<p>LASSO keeps many <code>query_length</code> dummy variables. The coefficients represent changes in the log odds ratio but analysts are discouraged from making inferences about them; it is a known feature of penalized regressions that correlated covariates may be included in the final model without having an underlying causal effect on the dependent variable.</p>
+<p>Boosting with XGBoost performs the best.</p>
+<p>LASSO keeps many variables. The coefficients represent changes in the log odds ratio but analysts are discouraged from making inferences about them; it is a known feature of penalized regressions that correlated covariates may be included in the final model without having an underlying causal effect on the dependent variable.</p>
 <p>The random forests model uses a generic 500 trees. <code>sig2</code> is the most important feature. When <code>sig2</code> is permuted, the model’s accuracy drops the most compared to any other predictor, so the forest relies heavily on it for splitting and prediction.</p>
-<p>These results generally concur with the earlier visualizations. LASSO emphasizes <code>query_length13</code>, which was shown to contain purely relevant observations. <code>sig2</code> also appeared to uniquely partition dependent and independent variables.</p>
+<p>These results generally concur with the earlier visualizations. <code>sig2</code> appeared to uniquely partition dependent and independent variables.</p>
 <p>Below is a table summarizing results, followed by visualizations of each modeling strategy’s variable selection methods and performance.</p>
 <div class="cell">
 <div class="cell-output-display">
@@ -240,24 +329,29 @@ window.Quarto = {
 <tr class="header">
 <th style="text-align: left;" data-quarto-table-cell-role="th">Model</th>
 <th style="text-align: center;" data-quarto-table-cell-role="th">CV Accuracy</th>
-<th style="text-align: center;" data-quarto-table-cell-role="th">Optimal Parameter</th>
+<th style="text-align: left;" data-quarto-table-cell-role="th">Optimal Parameters</th>
 </tr>
 </thead>
 <tbody>
 <tr class="odd">
 <td style="text-align: left;">LASSO</td>
-<td style="text-align: center;">0.6629</td>
-<td style="text-align: center;">λ = 8e-04</td>
+<td style="text-align: center;">0.66605</td>
+<td style="text-align: left;">λ = 1e-04</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;">KNN</td>
-<td style="text-align: center;">0.6646</td>
-<td style="text-align: center;">k = 151</td>
+<td style="text-align: center;">0.66600</td>
+<td style="text-align: left;">k = 149</td>
 </tr>
 <tr class="odd">
-<td style="text-align: left; font-weight: bold; color: white !important; background-color: rgba(76, 175, 80, 255) !important;">Random Forest</td>
-<td style="text-align: center; font-weight: bold; color: white !important; background-color: rgba(76, 175, 80, 255) !important;">0.6658</td>
-<td style="text-align: center; font-weight: bold; color: white !important; background-color: rgba(76, 175, 80, 255) !important;">mtry = 2</td>
+<td style="text-align: left;">Random Forest</td>
+<td style="text-align: center;">0.66614</td>
+<td style="text-align: left;">mtry = 3</td>
+</tr>
+<tr class="even">
+<td style="text-align: left; font-weight: bold; color: white !important; background-color: rgba(76, 175, 80, 255) !important;">XGBoost</td>
+<td style="text-align: center; font-weight: bold; color: white !important; background-color: rgba(76, 175, 80, 255) !important;">0.66737</td>
+<td style="text-align: left; font-weight: bold; color: white !important; background-color: rgba(76, 175, 80, 255) !important;">iterations = 46</td>
 </tr>
 </tbody>
 </table>
@@ -268,7 +362,7 @@ window.Quarto = {
 <div class="cell">
 <div class="cell-output-display">
 <table class="table table-striped table-hover caption-top table-sm small" data-quarto-postprocess="true">
-<caption>LASSO Selected Features (24 variables + intercept)</caption>
+<caption>Head of LASSO Selected Features (91 variables + intercept)</caption>
 <thead>
 <tr class="header">
 <th style="text-align: left;" data-quarto-table-cell-role="th">Feature</th>
@@ -277,104 +371,28 @@ window.Quarto = {
 </thead>
 <tbody>
 <tr class="odd">
-<td style="text-align: left; font-weight: bold;">query_length13</td>
-<td style="text-align: right; font-weight: bold; color: darkgreen !important;">3.1361</td>
+<td style="text-align: left; font-weight: bold;">sig2</td>
+<td style="text-align: right; font-weight: bold; color: darkgreen !important;">2.8803</td>
 </tr>
 <tr class="even">
-<td style="text-align: left;">query_length18</td>
-<td style="text-align: right; color: darkgreen !important;">1.3382</td>
-</tr>
-<tr class="odd">
-<td style="text-align: left;">query_length17</td>
-<td style="text-align: right; color: darkred !important;">-0.8336</td>
-</tr>
-<tr class="even">
-<td style="text-align: left;">query_length12</td>
-<td style="text-align: right; color: darkred !important;">-0.7456</td>
-</tr>
-<tr class="odd">
-<td style="text-align: left;">query_length1</td>
-<td style="text-align: right; color: darkred !important;">-0.7416</td>
-</tr>
-<tr class="even">
-<td style="text-align: left;">sig2</td>
-<td style="text-align: right; color: darkgreen !important;">0.5168</td>
-</tr>
-<tr class="odd">
-<td style="text-align: left;">query_length15</td>
-<td style="text-align: right; color: darkgreen !important;">0.4845</td>
-</tr>
-<tr class="even">
-<td style="text-align: left;">query_length16</td>
-<td style="text-align: right; color: darkred !important;">-0.4819</td>
-</tr>
-<tr class="odd">
-<td style="text-align: left;">log_sig6_positive</td>
-<td style="text-align: right; color: darkgreen !important;">0.3394</td>
-</tr>
-<tr class="even">
-<td style="text-align: left;">query_length9</td>
-<td style="text-align: right; color: darkred !important;">-0.2659</td>
-</tr>
-<tr class="odd">
-<td style="text-align: left;">sig6_is_zero</td>
-<td style="text-align: right; color: darkred !important;">-0.2198</td>
-</tr>
-<tr class="even">
-<td style="text-align: left;">is_homepage1</td>
-<td style="text-align: right; color: darkred !important;">-0.2011</td>
-</tr>
-<tr class="odd">
-<td style="text-align: left;">sig1</td>
-<td style="text-align: right; color: darkgreen !important;">0.1727</td>
-</tr>
-<tr class="even">
-<td style="text-align: left;">query_length2</td>
-<td style="text-align: right; color: darkred !important;">-0.1523</td>
+<td style="text-align: left;">is_homepage1:sig7</td>
+<td style="text-align: right; color: darkred !important;">-1.7308</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;">(Intercept)</td>
-<td style="text-align: right; color: darkgreen !important;">0.1445</td>
+<td style="text-align: right; color: darkred !important;">-1.5162</td>
 </tr>
 <tr class="even">
-<td style="text-align: left;">sig8</td>
-<td style="text-align: right; color: darkred !important;">-0.1414</td>
+<td style="text-align: left;">sig1:sig7</td>
+<td style="text-align: right; color: darkred !important;">-1.4295</td>
 </tr>
 <tr class="odd">
-<td style="text-align: left;">query_length7</td>
-<td style="text-align: right; color: darkgreen !important;">0.1141</td>
+<td style="text-align: left;">sig7:sig8</td>
+<td style="text-align: right; color: darkred !important;">-1.3312</td>
 </tr>
 <tr class="even">
-<td style="text-align: left;">query_length6</td>
-<td style="text-align: right; color: darkgreen !important;">0.0980</td>
-</tr>
-<tr class="odd">
-<td style="text-align: left;">sig7</td>
-<td style="text-align: right; color: darkgreen !important;">0.0941</td>
-</tr>
-<tr class="even">
-<td style="text-align: left;">query_length14</td>
-<td style="text-align: right; color: darkgreen !important;">0.0815</td>
-</tr>
-<tr class="odd">
-<td style="text-align: left;">query_length5</td>
-<td style="text-align: right; color: darkgreen !important;">0.0772</td>
-</tr>
-<tr class="even">
-<td style="text-align: left;">log_sig4</td>
-<td style="text-align: right; color: darkgreen !important;">0.0643</td>
-</tr>
-<tr class="odd">
-<td style="text-align: left;">query_length11</td>
-<td style="text-align: right; color: darkred !important;">-0.0491</td>
-</tr>
-<tr class="even">
-<td style="text-align: left;">query_length4</td>
-<td style="text-align: right; color: darkgreen !important;">0.0480</td>
-</tr>
-<tr class="odd">
-<td style="text-align: left;">query_length10</td>
-<td style="text-align: right; color: darkgreen !important;">0.0023</td>
+<td style="text-align: left;">is_homepage1:sig1</td>
+<td style="text-align: right; color: darkgreen !important;">1.3215</td>
 </tr>
 </tbody>
 </table>
@@ -382,7 +400,7 @@ window.Quarto = {
 <div class="cell-output-display">
 <div>
 <figure class="figure">
-<p><img src="bue-alex-final-project_files/figure-html/unnamed-chunk-8-1.png" class="img-fluid figure-img" width="672"></p>
+<p><img src="bue-alex-final-project_files/figure-html/unnamed-chunk-10-1.png" class="img-fluid figure-img" width="672"></p>
 </figure>
 </div>
 </div>
@@ -394,7 +412,7 @@ window.Quarto = {
 <div class="cell-output-display">
 <div>
 <figure class="figure">
-<p><img src="bue-alex-final-project_files/figure-html/unnamed-chunk-9-1.png" class="img-fluid figure-img" width="672"></p>
+<p><img src="bue-alex-final-project_files/figure-html/unnamed-chunk-11-1.png" class="img-fluid figure-img" width="672"></p>
 </figure>
 </div>
 </div>
@@ -406,24 +424,45 @@ window.Quarto = {
 <div class="cell-output-display">
 <div>
 <figure class="figure">
-<p><img src="bue-alex-final-project_files/figure-html/unnamed-chunk-10-1.png" class="img-fluid figure-img" width="672"></p>
+<p><img src="bue-alex-final-project_files/figure-html/unnamed-chunk-12-1.png" class="img-fluid figure-img" width="672"></p>
 </figure>
 </div>
 </div>
 <div class="cell-output-display">
 <div>
 <figure class="figure">
-<p><img src="bue-alex-final-project_files/figure-html/unnamed-chunk-10-2.png" class="img-fluid figure-img" width="672"></p>
+<p><img src="bue-alex-final-project_files/figure-html/unnamed-chunk-12-2.png" class="img-fluid figure-img" width="672"></p>
 </figure>
 </div>
+</div>
+</div>
+</section>
+<section id="xgboost" class="level3">
+<h3 class="anchored" data-anchor-id="xgboost">XGBoost</h3>
+<div class="cell">
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="bue-alex-final-project_files/figure-html/unnamed-chunk-13-1.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output-display">
+<div>
+<figure class="figure">
+<p><img src="bue-alex-final-project_files/figure-html/unnamed-chunk-13-2.png" class="img-fluid figure-img" width="672"></p>
+</figure>
+</div>
+</div>
+<div class="cell-output cell-output-stdout">
+<pre><code>XGBoost CV Accuracy: 0.6674 </code></pre>
 </div>
 </div>
 </section>
 </section>
 <section id="testing" class="level2">
 <h2 class="anchored" data-anchor-id="testing">Testing</h2>
-<p>Code for creating the test dataframe is available in the Git Hub repository but hidden here.</p>
-<p>There was some difficulty applying the final Random Forest model to the test data. Random Forest, in its Caret package form, requires identical factor levels. But I cannot ascertain what factor levels appear in the test data without peaking at it. Therefore, perhaps naively, I simply imposed the same factors from the training data preprocessing to the test data.</p>
+<p>A script for creating the test submissions is included in the GitHub Repository: https://github.com/24-bee-supply/stats-202-project.</p>
 </section>
 
 </main>

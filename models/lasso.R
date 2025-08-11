@@ -3,7 +3,7 @@ library(glmnet)
 set.seed(202)
 
 # Prepare data
-X_train <- model.matrix(relevance ~ . - 1, data = train_transformed)
+X_train <- model.matrix(relevance ~ . ^2  - 1, data = train_transformed)
 y_train <- train_transformed$relevance
 
 # Run LASSO with 10-fold CV

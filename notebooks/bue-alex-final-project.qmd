@@ -3,17 +3,20 @@ title: "STATS202 Final Project"
 author: "Bue, Alex"
 date: today
 format: 
-  html:
-    toc: true
-    code-links:
-      - text: "GitHub Repository"
-        icon: github
-        href: https://github.com/24-bee-supply/stats-202-project
+ html:
+   toc: true
+   code-links:
+     - text: "GitHub Repository"
+       icon: github
+       href: https://github.com/24-bee-supply/stats-202-project
 execute:
-  echo: false
-  warning: false
-  message: false
+ echo: false
+ warning: false
+ message: false
 ---
+
+## Summary
+
 
 ## Selection
 
@@ -26,11 +29,9 @@ I conduct visualizations first. Some initial data exploration shows:
 - `query_length` is a count.
 - `sig3`, `sig4`, `sig5`, `sig6` are all highly skewed.
 
-I remove unique identifiers (but not `url_id`, which is ambiguous at this stage) from the training data because they will over-fit the data. 
+I visualize the density of each predictor grouped by dependent variable. The overlay of the plots helps visualize whether the variable of interest is systematically higher for certain values of the predictors. To make the contrast more conspicuous, I log-transform the skewed variables. I also group predictor values into deciles and condition on the dependent variable. `sig2` appears conspicuously useful as a separator of the dependent variable. 
 
-I visualize the density of each predictor grouped by dependent variable. The overlay of the plots helps visualize whether the variable of interest is systematically higher for certain values of the predictors. To make the contrast more conspicuous, I log-transform the skewed variables. I also group predictor values into deciles and condition on the dependent variable. 
-
-For completness I investigate multicollinearity but find no significant $(|r| > .8)$ correlations. Variance inflation is also more germane to inference than to prediction; the point estimates with multicollinearity do not change even while standard errors increase. 
+For completeness I investigate multicollinearity but find no significant $(|r| > .8)$ correlations. Variance inflation is also more germane to inference than to prediction; the point estimates with multicollinearity do not change even while standard errors increase. 
 
 ### Visualizations
 
@@ -283,7 +284,7 @@ corrplot(cor_matrix,
 
 #### Query Length
 
-Longer lenghts of query length has a very high proportion of relevant entries. I calculate standard errors to see whether these trends are statistically significant or may result in over-fitting. 
+Longer query lengths have a very high proportion of relevant entries. I calculate standard errors to see whether these trends are statistically significant or may result in over-fitting. 
 
 ```{r}
 library(dplyr)
@@ -316,12 +317,55 @@ train %>%
 
 They are not statistically significant. 
 
+### URL ID
+
+```{r}
+library(ggplot2)
+
+# Load data
+train <- read.csv("../data/training.csv")
+
+# Sort by URL ID and calculate rolling mean
+train <- train[order(train$url_id), ]
+window <- 1000  # Average over 1000 consecutive URLs
+train$rolling_avg <- zoo::rollmean(train$relevance, k = window, fill = NA, align = "center")
+
+# Find where it crosses the overall mean
+overall_mean <- mean(train$relevance)
+train_clean <- train[!is.na(train$rolling_avg), ]
+
+# Find crossing point
+for(i in 2:nrow(train_clean)) {
+  if(train_clean$rolling_avg[i-1] > overall_mean & train_clean$rolling_avg[i] <= overall_mean) {
+    crossing_point <- train_clean$url_id[i]
+    break
+  }
+}
+
+cat("Crossing point at URL ID:", crossing_point, "\n")
+
+# Plot
+library(viridis)
+colors <- viridis(3)
+
+ggplot(train_clean, aes(x = url_id, y = rolling_avg)) +
+  geom_line(color = colors[1], size = 1) +
+  geom_hline(yintercept = overall_mean, color = colors[2], linetype = "dashed", size = 0.8) +
+  geom_vline(xintercept = crossing_point, color = colors[3], size = 1.2) +
+  theme_minimal() +
+  labs(title = paste("URL ID Relevance - Crosses Mean at URL ID", crossing_point),
+       subtitle = "1000-URL Rolling Average",
+       x = "URL ID", 
+       y = "Average Relevance") +
+  theme(plot.title = element_text(size = 14, face = "bold"),
+        plot.subtitle = element_text(size = 11))
+```
 
 ## Pre-processing
 
 I code `is_homepage` as an unordered factor. 
 
-I remove `query_length` because the most predictive lengths are also the most rare. It is sensible to represent `query_length` as a factor variable, because the proportion of relevance does not appear to increase linearly, but factors introduce various challenges with prediction. If some factor is not present in the future data, then our trained model will not work. For simpliciy, and because the longer lenghts are not statistically significant, I remove the variable. 
+I remove `query_length` because the most predictive lengths are also the most rare. It is sensible to represent `query_length` as a factor variable, because the proportion of relevance does not appear to increase linearly, but factors introduce various challenges with prediction. If some factor is not present in the future data, then our trained model will not work. A compromise is necessary. 
 
 `url_id` will need to be handled differently. The numeric scale is not sensible but neither are factors, which would lead to over-fitting. Ultimately, it seems risky to include data that may be idiosyncratic, so I exclude it for conservatism. 
 
@@ -332,17 +376,16 @@ There are no missing values.
 ```{r}
 ## Pre-processing
 
+# Load data once
+train <- read.csv("../data/training.csv")
+
 # Function to preprocess data
 preprocess_data <- function(data) {
  
  # Remove unique identifiers
  data_processed <- data %>%
-   select(-id, -query_id, -query_length)
- 
- # Remove url_id (idiosyncratic, risk of overfitting)
- data_processed <- data_processed %>%
-   select(-url_id)
- 
+   select(-id, -query_id)
+  
  # Code is_homepage as unordered factor
  data_processed$is_homepage <- as.factor(data_processed$is_homepage)
 
@@ -358,9 +401,12 @@ train_processed <- preprocess_data(train)
 I apply the following transformations: 
 
 - Log-transform skewed variables (`sig3, sig4, sig5`) for linear models.
-- I use `log1p` from base R, which adds a constant of $1$ to each value to avoid issues with zeros.
-- The loss of the usual interpretability - where natural logs approximate percentage changes - is not important here.
+  - This linearizes for LASSO, and monotone transformations are unlikely to hurt more flexible modeling strategies. 
+  - I use `log1p` from base R, which adds a constant of $1$ to each value to avoid issues with zeros. The loss of the usual interpretability - where natural logs approximate percentage changes - is not important here.
 - Two-part transformation for `sig6`: create a dummy variable indicating zero values, then log-transform the positive values. This preserves the information in zeros (which show a higher proportion of relevance) while making the positive values less skewed.
+- I add binary variables for `query_length` 1 and 2, which are statistically significant according to my earlier visualization. 
+- I add a factor variable for `url_id` below $30000$, the cutoff at which mean relevance was highest. 
+- After transforming, I remove `url_id` and other variables. 
 
 Note that I do not standardize at this stage. Since I will later use cross-validation, scaling of the variables should happen within each fold where appropriate. 
 
@@ -374,16 +420,23 @@ apply_transformations <- function(data_processed) {
   data_transformed$log_sig3 <- log1p(data_transformed$sig3)
   data_transformed$log_sig4 <- log1p(data_transformed$sig4)
   data_transformed$log_sig5 <- log1p(data_transformed$sig5)
+
+  # Dummy variables for statistically significant word queries
+  data_transformed$single_word_query <- as.integer(data_processed$query_length == 1)
+  data_transformed$two_word_query <- as.integer(data_processed$query_length == 2)
+  data_transformed$three_word_query <- as.integer(data_processed$query_length == 3)
   
   # Handle sig6 specially due to many zeros
   data_transformed$sig6_is_zero <- as.integer(data_transformed$sig6 == 0)
-  data_transformed$log_sig6_pos
-  itive <- ifelse(data_transformed$sig6 > 0, 
+  data_transformed$log_sig6_positive <- ifelse(data_transformed$sig6 > 0, 
                                                 log(data_transformed$sig6), 0)
   
-  # Remove the original skewed variables
+  # Create URL ID binary feature (crosses mean at 29879, round to 30000)
+  data_transformed$low_url_id <- as.integer(data_transformed$url_id < 30000)
+  
+  # Remove the original skewed variables and url_id
   data_transformed <- data_transformed %>%
-    select(-sig3, -sig4, -sig5, -sig6)
+    select(-sig3, -sig4, -sig5, -sig6, -url_id, -query_length)
   
   return(data_transformed)
 }
@@ -397,29 +450,40 @@ I will use 10-fold cross-validation to estimate generalization error for each mo
 
 My modeling strategies are:
 
-1. LASSO logistic regression: Suitable for correlated predictors and sparse data to reduce variance. Factor variables are one-hot encoded. The tuning variable is $\lambda$, imposing a progressively higher penalty that shrinks coefficients towards zero. 
+1. LASSO logistic regression: Suitable for correlated predictors and sparse data to reduce variance. Factor variables are one-hot encoded. The tuning variable is $\lambda$, imposing a progressively higher penalty that shrinks coefficients towards zero. I use a "kitchen-sink" approach with all interactions.
 2. KNN: A simple, intuitive method that makes minimal assumptions about the data’s functional form. Factor variables are one-hot encoded; the curse of dimensionality is not salient given the relatively low dimensions. The tuning variable is $k$, or the number of nearest neighbors. 
-3. Random Forests: Well-suited to low-dimensional tabular data and capable of capturing complex, nonlinear interactions automatically without needing the earlier transformations; especially attractive given apparent splines in some variables (`sig1`). Factor variables are not one-hot encoded because one-hot encoding increases the number of predictors, resulting in over-representation of factor variables by random forests. The tuning variable is `mtry`, or the number of predictors randomly sampled from all potential predictors, and the splitrule and the minimum node size, from the Ranger package:
+3. Random Forests: Well-suited to low-dimensional tabular data and capable of capturing complex, nonlinear interactions automatically without needing the earlier transformations; especially attractive given apparent splines in some variables (`sig1`). Factor variables are not one-hot encoded because one-hot encoding increases the number of predictors, resulting in over-representation of factor variables by random forests. The tuning parameters are below:
 
 ```r
 rf_grid <- expand.grid(
- mtry = c(2, 3, 4, 5, 8),  # Number of variables at each split
- splitrule = c("gini", "extratrees"),  # Splitting rules
- min.node.size = c(1, 5, 10, 20)  # Minimum node size
+  mtry = c(2, 4, 6, default_mtry),
+  splitrule = "gini",
+  min.node.size = c(1, 5, 10)
 )
 ```
 
-These methods each have the benefit of being relatively interpretable. 
+4. I also use boosting with XGBoost. The tuning parameters are below:
+
+```r
+params <- list(
+  objective = "binary:logistic",
+  eval_metric = "error",
+  max_depth = 6,
+  eta = 0.1,
+  subsample = 0.8,
+  colsample_bytree = 0.8
+)
+```
 
 ## Interpretation/Evaluation
 
-Random forests performs the best, having the highest accuracy, but all models perform very similarly. 
+Boosting with XGBoost performs the best.
 
-LASSO keeps many `query_length` dummy variables. The coefficients represent changes in the log odds ratio but analysts are discouraged from making inferences about them; it is a known feature of penalized regressions that correlated covariates may be included in the final model without having an underlying causal effect on the dependent variable. 
+LASSO keeps many variables. The coefficients represent changes in the log odds ratio but analysts are discouraged from making inferences about them; it is a known feature of penalized regressions that correlated covariates may be included in the final model without having an underlying causal effect on the dependent variable. 
 
 The random forests model uses a generic 500 trees. `sig2` is the most important feature. When `sig2` is permuted, the model's accuracy drops the most compared to any other predictor, so the forest relies heavily on it for splitting and prediction.
 
-These results generally concur with the earlier visualizations. LASSO emphasizes `query_length13`, which was shown to contain purely relevant observations. `sig2` also appeared to uniquely partition dependent and independent variables. 
+These results generally concur with the earlier visualizations. `sig2` appeared to uniquely partition dependent and independent variables. 
 
 Below is a table summarizing results, followed by visualizations of each modeling strategy's variable selection methods and performance. 
 
@@ -429,27 +493,28 @@ Below is a table summarizing results, followed by visualizations of each modelin
 library(knitr)
 library(kableExtra)
 library(tidyverse)
-
 # Collect all model results
 model_comparison <- data.frame(
-  Model = c("LASSO", "KNN", "Random Forest"),
+  Model = c("LASSO", "KNN", "Random Forest", "XGBoost"),
   CV_Accuracy = c(
-    round(1 - min(readRDS("../models/lasso_model.rds")$cv_model$cvm), 4),
-    round(max(readRDS("../models/knn_model.rds")$results$Accuracy), 4),
-    round(max(readRDS("../models/rf_model.rds")$results$Accuracy), 4)
+    round(1 - min(readRDS("../models/lasso_model.rds")$cv_model$cvm), 5),
+    round(max(readRDS("../models/knn_model.rds")$results$Accuracy), 5),
+    round(max(readRDS("../models/rf_ranger_model.rds")$results$Accuracy), 5),
+    round(1 - readRDS("../models/xgb_model.rds")$cv$evaluation_log$test_error_mean[readRDS("../models/xgb_model.rds")$cv$best_iteration], 5)
   ),
   Optimal_Parameter = c(
     paste("λ =", round(readRDS("../models/lasso_model.rds")$cv_model$lambda.min, 4)),
     paste("k =", readRDS("../models/knn_model.rds")$bestTune$k),
-    paste("mtry =", readRDS("../models/rf_model.rds")$bestTune$mtry)
+    paste("mtry =", readRDS("../models/rf_ranger_model.rds")$bestTune$mtry),
+    paste("iterations =", readRDS("../models/xgb_model.rds")$cv$best_iteration)
   )
 )
 
 # Display as formatted table
 model_comparison %>%
-  kable(col.names = c("Model", "CV Accuracy", "Optimal Parameter"),
+  kable(col.names = c("Model", "CV Accuracy", "Optimal Parameters"),
         caption = "Model Performance Comparison",
-        align = c("l", "c", "c")) %>%
+        align = c("l", "c", "l")) %>%
   kable_styling(bootstrap_options = c("striped", "hover"),
                 full_width = FALSE) %>%
   row_spec(which.max(model_comparison$CV_Accuracy), bold = TRUE, color = "white", background = "#4CAF50")
@@ -484,14 +549,15 @@ coef_df <- data.frame(
   arrange(desc(abs(Coefficient)))
 
 # Display table
-coef_df %>%
-  kable(caption = paste("LASSO Selected Features (", nrow(coef_df) - 1, " variables + intercept)", sep = ""),
+coef_df %>% 
+  head() %>%
+  kable(caption = paste("Head of LASSO Selected Features (", nrow(coef_df) - 1, " variables + intercept)", sep = ""),
         col.names = c("Feature", "Coefficient"),
         align = c("l", "r")) %>%
   kable_styling(bootstrap_options = c("striped", "hover"),
                 full_width = FALSE) %>%
   row_spec(1, bold = TRUE) %>%  # Bold the intercept
-  column_spec(2, color = ifelse(coef_df$Coefficient > 0, "darkgreen", "darkred"))
+  column_spec(2, color = ifelse(coef_df$Coefficient > 0, "darkgreen", "darkred")) 
 
 # Create data frame for ggplot
 cv_data <- data.frame(
@@ -573,7 +639,7 @@ library(caret)
 library(dplyr)
 
 # Load model
-rf_model <- readRDS("rf_model.rds")
+rf_model <- readRDS("../models/rf_ranger_model.rds")
 
 # Plot accuracy vs mtry
 ggplot(rf_model$results, aes(x = mtry, y = Accuracy)) +
@@ -605,57 +671,50 @@ ggplot(top10, aes(x = reorder(feature, importance_value), y = importance_value))
  theme_minimal()
 ```
 
+### XGBoost
+
+```{r}
+library(xgboost)
+library(ggplot2)
+library(dplyr)
+
+# Load model
+xgb_results <- readRDS("../models/xgb_model.rds")
+xgb_model <- xgb_results$model
+cv_results <- xgb_results$cv
+
+# Plot CV results
+cv_df <- cv_results$evaluation_log
+ggplot(cv_df, aes(x = iter, y = test_error_mean)) +
+  geom_line(color = "darkblue", size = 1) +
+  geom_ribbon(aes(ymin = test_error_mean - test_error_std, 
+                  ymax = test_error_mean + test_error_std), 
+              alpha = 0.2, fill = "darkblue") +
+  geom_vline(xintercept = cv_results$best_iteration, linetype = "dashed", color = "red") +
+  labs(title = paste("XGBoost: Optimal iteration =", cv_results$best_iteration),
+       x = "Iteration", 
+       y = "Test Error (10-Fold CV)") +
+  theme_minimal()
+
+# Feature importance
+importance_matrix <- xgb.importance(model = xgb_model)
+
+# Plot top 10 features
+importance_matrix %>%
+  head(10) %>%
+  ggplot(aes(x = reorder(Feature, Gain), y = Gain)) +
+  geom_bar(stat = "identity", fill = "darkblue") +
+  coord_flip() +
+  labs(title = "XGBoost: Top 10 Important Features",
+       x = "Feature", y = "Importance (Gain)") +
+  theme_minimal()
+
+# Print accuracy
+best_accuracy <- round(1 - cv_df$test_error_mean[cv_results$best_iteration], 4)
+cat("XGBoost CV Accuracy:", best_accuracy, "\n")
+```
+
 
 ## Testing
 
-Code for creating the test dataframe is available in the Git Hub repository but hidden here. 
-
-There was some difficulty applying the final Random Forest model to the test data. Random Forest, in its Caret package form, requires identical factor levels. But I cannot ascertain what factor levels appear in the test data without peaking at it. Therefore, perhaps naively, I simply imposed the same factors from the training data preprocessing to the test data. 
-
-```{r}
-#| message: false
-#| warning: false
-
-library(caret)
-library(tidyverse)
-
-# Load test data
-test <- read.csv("../data/test.csv")
-
-test_processed <- preprocess_data(test)
-test_transformed <- apply_transformations(test_processed)
-
-# For KNN, need to convert to numeric matrix (one-hot encoding)
-X_test <- model.matrix(~ . - 1, data = test_transformed)
-
-# Load the KNN model
-knn_model <- readRDS("../models/knn_model.rds")
-
-# Make predictions
-predictions <- predict(knn_model, newdata = X_test)
-
-# Convert to binary
-predictions_binary <- as.integer(as.character(predictions))
-
-# Check prediction distribution
-cat("KNN Prediction Distribution:\n")
-cat("============================\n")
-cat("Mean predictions:", round(mean(predictions_binary), 3), "\n")
-cat("Proportion of 1s:", round(mean(predictions_binary), 3), "\n")
-cat("Proportion of 0s:", round(1 - mean(predictions_binary), 3), "\n\n")
-
-# Create submission
-submission <- data.frame(
-  id = test$id,
-  relevance = predictions_binary
-)
-
-# Save predictions
-write.csv(submission, "../data/bue-alex-knn-predictions.csv", row.names = FALSE)
-
-cat("Predictions saved to: bue-alex-knn-predictions.csv\n\n")
-
-# Show first 10 predictions
-cat("First 10 predictions:\n")
-print(head(submission, 10))
-```
+A script for creating the test submissions is included in the GitHub Repository: https://github.com/24-bee-supply/stats-202-project.

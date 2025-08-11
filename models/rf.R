@@ -3,60 +3,71 @@ library(caret)
 
 set.seed(202)
 
+cat("=== Starting Random Forest Training ===\n")
+cat("Time:", format(Sys.time(), "%Y-%m-%d %H:%M:%S"), "\n\n")
+
 # Prepare data
 X_train <- train_transformed %>% select(-relevance)
 y_train <- as.factor(train_transformed$relevance)
+cat("Data prepared:", nrow(X_train), "rows,", ncol(X_train), "features\n\n")
 
-# OPTION 1: Quick single ranger model (no CV, takes ~30 seconds)
-# This is often good enough and much faster
-quick_rf <- ranger(
-  relevance ~ ., 
-  data = train_transformed,
-  num.trees = 500,
-  mtry = floor(sqrt(ncol(X_train))),  
-  min.node.size = 5,
-  importance = "impurity",
-  probability = TRUE,  # Get probabilities for threshold tuning
-  num.threads = parallel::detectCores() - 1
-)
+# Grid search with caret
+cat("--- Grid Search with Cross-Validation ---\n")
 
-cat("Quick RF OOB Error:", quick_rf$prediction.error, "\n")
-
-# OPTION 2: Minimal grid search with caret (5-10 minutes)
-# Smaller, smarter grid
+# Set up grid
+default_mtry <- floor(sqrt(ncol(X_train)))
 rf_grid <- expand.grid(
-  mtry = c(2, 4, 6, mtry = floor(sqrt(ncol(X_train)))),  # Just 3 values
-  splitrule = "gini",  # Just use gini (usually best)
-  min.node.size = c(1, 5, 10)  # Just 2 values
+  mtry = c(2, 4, 6, default_mtry),
+  splitrule = "gini",
+  min.node.size = c(1, 5, 10)
 )
 
-# Use 5-fold CV instead of 10 for speed
+cat("Grid search parameters:\n")
+cat("- mtry values:", unique(rf_grid$mtry), "\n")
+cat("- min.node.size values:", unique(rf_grid$min.node.size), "\n")
+cat("- Total combinations:", nrow(rf_grid), "\n")
+cat("- CV folds: 10\n")
+cat("- Total models to fit:", nrow(rf_grid) * 10, "\n\n")
+
+cat("Starting grid search...\n")
+start_time <- Sys.time()
+
+# Train with CV
 rf_model <- train(
   x = X_train,
   y = y_train,
   method = "ranger",
   trControl = trainControl(
     method = "cv", 
-    number = 10,  # 10-fold CV
-    allowParallel = FALSE  # Let ranger handle parallelization internally
+    number = 10,
+    allowParallel = FALSE,
+    verboseIter = TRUE
   ),
   tuneGrid = rf_grid,
-  num.trees = 500,  # 500 trees as requested
+  num.trees = 500,
   importance = "impurity",
-  num.threads = parallel::detectCores() - 1,  # Use all cores within ranger
+  num.threads = parallel::detectCores() - 1,
   verbose = FALSE
 )
 
-# Save both models
-saveRDS(list(quick_model = quick_rf, 
-             cv_model = rf_model), 
-        "../models/rf_ranger_model.rds")
+end_time <- Sys.time()
+cat("\nGrid search completed in", round(difftime(end_time, start_time, units = "mins"), 1), "minutes\n\n")
+
+# Save model
+cat("Saving model...\n")
+saveRDS(rf_model, "../models/rf_ranger_model.rds")
+cat("Model saved to ../models/rf_ranger_model.rds\n\n")
 
 # Print results
-cat("\n--- Quick Model (OOB) ---\n")
-cat("OOB Accuracy:", 1 - quick_rf$prediction.error, "\n")
-
-cat("\n--- CV Model ---\n")
+cat("=== RESULTS ===\n")
 cat("Best mtry:", rf_model$bestTune$mtry, "\n")
 cat("Best min.node.size:", rf_model$bestTune$min.node.size, "\n")
-cat("CV Accuracy:", max(rf_model$results$Accuracy), "\n")
+cat("Best splitrule:", rf_model$bestTune$splitrule, "\n")
+cat("CV Accuracy:", round(max(rf_model$results$Accuracy), 4), "\n\n")
+
+# Print all results sorted by accuracy
+cat("--- All Grid Search Results ---\n")
+print(rf_model$results[order(-rf_model$results$Accuracy), 
+                       c("mtry", "min.node.size", "Accuracy", "AccuracySD")])
+
+cat("\n=== Training Complete ===\n")
