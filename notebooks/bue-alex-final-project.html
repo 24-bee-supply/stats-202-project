@@ -6,10 +6,10 @@
 
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
 
-<meta name="author" content="Your Name">
+<meta name="author" content="Bue, Alex">
 <meta name="dcterms.date" content="2025-08-10">
 
-<title>Stats 202 Analysis</title>
+<title>STATS202 Final Project</title>
 <style>
 code{white-space: pre-wrap;}
 span.smallcaps{font-variant: small-caps;}
@@ -92,15 +92,15 @@ window.Quarto = {
   <li><a href="#knn" id="toc-knn" class="nav-link" data-scroll-target="#knn">KNN</a></li>
   <li><a href="#random-forests" id="toc-random-forests" class="nav-link" data-scroll-target="#random-forests">Random Forests</a></li>
   </ul></li>
-  <li><a href="#git-repository" id="toc-git-repository" class="nav-link" data-scroll-target="#git-repository">Git Repository</a></li>
+  <li><a href="#testing" id="toc-testing" class="nav-link" data-scroll-target="#testing">Testing</a></li>
   </ul>
-</nav>
+<div class="quarto-code-links"><h2>Code Links</h2><ul><li><a href="https://github.com/24-bee-supply/stats-202-project"><i class="bi bi-github"></i>GitHub Repository</a></li></ul></div></nav>
 </div>
 <main class="content" id="quarto-document-content">
 
 <header id="title-block-header" class="quarto-title-block default">
 <div class="quarto-title">
-<h1 class="title">Stats 202 Analysis</h1>
+<h1 class="title">STATS202 Final Project</h1>
 </div>
 
 
@@ -110,7 +110,7 @@ window.Quarto = {
     <div>
     <div class="quarto-title-meta-heading">Author</div>
     <div class="quarto-title-meta-contents">
-             <p>Your Name </p>
+             <p>Bue, Alex </p>
           </div>
   </div>
     
@@ -131,14 +131,14 @@ window.Quarto = {
 
 <section id="selection" class="level2">
 <h2 class="anchored" data-anchor-id="selection">Selection</h2>
-<p>I conduct visualizations before preprocessing. Some initial data exploration shows:</p>
+<p>I conduct visualizations first. Some initial data exploration shows:</p>
 <ul>
 <li>The dependent variable is not imbalanced (<span class="math inline">\(\hat{p} = .4371\)</span>)</li>
 <li><code>id</code> and <code>query_id</code> are unique identifiers.</li>
 <li><code>url_id</code> is not clearly a unique identifier because the distribution of histogram buckets is not uniform.</li>
 <li><code>is_homepage</code> is a binary variable.</li>
 <li><code>query_length</code> is a count.</li>
-<li><code>sig</code>, <code>sig3</code>, <code>sig4</code>, <code>sig5</code>, <code>sig6</code> are all highly skewed.</li>
+<li><code>sig3</code>, <code>sig4</code>, <code>sig5</code>, <code>sig6</code> are all highly skewed.</li>
 </ul>
 <p>I remove unique identifiers (but not <code>url_id</code>, which is ambiguous at this stage) from the training data because they will over-fit the data.</p>
 <p>I visualize the density of each predictor grouped by dependent variable. The overlay of the plots helps visualize whether the variable of interest is systematically higher for certain values of the predictors. To make the contrast more conspicuous, I log-transform the skewed variables. I also group predictor values into deciles and condition on the dependent variable.</p>
@@ -169,8 +169,8 @@ window.Quarto = {
 </div>
 </div>
 </section>
-<section id="proportions-bayes-of-select-predictors-conditioned-on-dependent-variables-deciles" class="level4">
-<h4 class="anchored" data-anchor-id="proportions-bayes-of-select-predictors-conditioned-on-dependent-variables-deciles">Proportions (Bayes) of Select Predictors Conditioned on Dependent Variables Deciles</h4>
+<section id="proportions-of-select-predictors-conditioned-on-dependent-variables-deciles" class="level4">
+<h4 class="anchored" data-anchor-id="proportions-of-select-predictors-conditioned-on-dependent-variables-deciles">Proportions of Select Predictors Conditioned on Dependent Variables Deciles</h4>
 <div class="cell">
 <div class="cell-output-display">
 <div>
@@ -211,8 +211,8 @@ window.Quarto = {
 <li>I use <code>log1p</code> from base R, which adds a constant of <span class="math inline">\(1\)</span> to each value to avoid issues with zeros.</li>
 <li>The loss of the usual interpretability - where natural logs approximate percentage changes - is not important here.</li>
 <li>Two-part transformation for <code>sig6</code>: create a dummy variable indicating zero values, then log-transform the positive values. This preserves the information in zeros (which show a higher proportion of relevance) while making the positive values less skewed.</li>
-<li>Standardize all numeric variables in anticipation of using more flexible, distance-based modeling strategies.</li>
 </ul>
+<p>Note that I do not standardize at this stage. Since I will later use cross-validation, scaling of the variables should happen within each fold where appropriate.</p>
 </section>
 <section id="data-mining" class="level2">
 <h2 class="anchored" data-anchor-id="data-mining">Data Mining</h2>
@@ -221,13 +221,13 @@ window.Quarto = {
 <ol type="1">
 <li>LASSO logistic regression: Suitable for correlated predictors and sparse data to reduce variance. Factor variables are one-hot encoded. The tuning variable is <span class="math inline">\(\lambda\)</span>, imposing a progressively higher penalty that shrinks coefficients towards zero.</li>
 <li>KNN: A simple, intuitive method that makes minimal assumptions about the data’s functional form. Factor variables are one-hot encoded; the curse of dimensionality is not salient given the relatively low dimensions. The tuning variable is <span class="math inline">\(k\)</span>, or the number of nearest neighbors.</li>
-<li>Random Forests: Well-suited to low-dimensional tabular data and capable of capturing complex, nonlinear interactions automatically without needing the earlier transformations; especially attractive given apparent splines in some variables (<code>sig1</code>). Factor variables are not one-hot encoded because one-hot encoding increases the number of predictors, resulting in over-representation of factor variables by random forests. The tuning variable is <code>mtry</code>, or the number of predictors randomly sampled from all potential predictors.</li>
+<li>Random Forests: Well-suited to low-dimensional tabular data and capable of capturing complex, nonlinear interactions automatically without needing the earlier transformations; especially attractive given apparent splines in some variables (<code>sig1</code>). Factor variables are not one-hot encoded because one-hot encoding increases the number of predictors, resulting in over-representation of factor variables by random forests. The tuning variable is <code>mtry</code>, or the number of predictors randomly sampled from all potential predictors. Due to computational constraints, I do not tune the number or size of tree nodes.</li>
 </ol>
 <p>These methods each have the benefit of being relatively interpretable. Many models in the <code>caret</code> package automatically pick a variety of tuning parameters. I use this approach except in the case of KNN, where the default <span class="math inline">\(k\)</span> values were too low and therefore needed to be manually adjusted up.</p>
 </section>
 <section id="interpretationevaluation" class="level2">
 <h2 class="anchored" data-anchor-id="interpretationevaluation">Interpretation/Evaluation</h2>
-<p>KNN performs the best.</p>
+<p>Random forests performs the best, having the highest accuracy, but all models perform very similarly.</p>
 <p>LASSO keeps many <code>query_length</code> dummy variables. The coefficients represent changes in the log odds ratio but analysts are discouraged from making inferences about them; it is a known feature of penalized regressions that correlated covariates may be included in the final model without having an underlying causal effect on the dependent variable.</p>
 <p>The random forests model uses a generic 500 trees. <code>sig2</code> is the most important feature. When <code>sig2</code> is permuted, the model’s accuracy drops the most compared to any other predictor, so the forest relies heavily on it for splitting and prediction.</p>
 <p>These results generally concur with the earlier visualizations. LASSO emphasizes <code>query_length13</code>, which was shown to contain purely relevant observations. <code>sig2</code> also appeared to uniquely partition dependent and independent variables.</p>
@@ -250,14 +250,14 @@ window.Quarto = {
 <td style="text-align: center;">λ = 8e-04</td>
 </tr>
 <tr class="even">
-<td style="text-align: left; font-weight: bold; color: white !important; background-color: rgba(76, 175, 80, 255) !important;">KNN</td>
-<td style="text-align: center; font-weight: bold; color: white !important; background-color: rgba(76, 175, 80, 255) !important;">0.6661</td>
-<td style="text-align: center; font-weight: bold; color: white !important; background-color: rgba(76, 175, 80, 255) !important;">k = 151</td>
+<td style="text-align: left;">KNN</td>
+<td style="text-align: center;">0.6646</td>
+<td style="text-align: center;">k = 151</td>
 </tr>
 <tr class="odd">
-<td style="text-align: left;">Random Forest</td>
-<td style="text-align: center;">0.6660</td>
-<td style="text-align: center;">mtry = 2</td>
+<td style="text-align: left; font-weight: bold; color: white !important; background-color: rgba(76, 175, 80, 255) !important;">Random Forest</td>
+<td style="text-align: center; font-weight: bold; color: white !important; background-color: rgba(76, 175, 80, 255) !important;">0.6658</td>
+<td style="text-align: center; font-weight: bold; color: white !important; background-color: rgba(76, 175, 80, 255) !important;">mtry = 2</td>
 </tr>
 </tbody>
 </table>
@@ -420,8 +420,10 @@ window.Quarto = {
 </div>
 </section>
 </section>
-<section id="git-repository" class="level2">
-<h2 class="anchored" data-anchor-id="git-repository">Git Repository</h2>
+<section id="testing" class="level2">
+<h2 class="anchored" data-anchor-id="testing">Testing</h2>
+<p>Code for creating the test dataframe is available in the Git Hub repository but hidden here.</p>
+<p>There was some difficulty applying the final Random Forest model to the test data. Random Forest, in its Caret package form, requires identical factor levels. But I cannot ascertain what factor levels appear in the test data without peaking at it. Therefore, perhaps naively, I simply imposed the same factors from the training data preprocessing to the test data.</p>
 </section>
 
 </main>

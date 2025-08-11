@@ -1,10 +1,14 @@
 ---
-title: "Stats 202 Analysis"
-author: "Your Name"
+title: "STATS202 Final Project"
+author: "Bue, Alex"
 date: today
 format: 
   html:
     toc: true
+    code-links:
+      - text: "GitHub Repository"
+        icon: github
+        href: https://github.com/24-bee-supply/stats-202-project
 execute:
   echo: false
   warning: false
@@ -13,14 +17,14 @@ execute:
 
 ## Selection
 
-I conduct visualizations before preprocessing. Some initial data exploration shows:
+I conduct visualizations first. Some initial data exploration shows:
 
 - The dependent variable is not imbalanced ($\hat{p} = .4371$)
 - `id` and `query_id` are unique identifiers.
 - `url_id` is not clearly a unique identifier because the distribution of histogram buckets is not uniform. 
 - `is_homepage` is a binary variable. 
 - `query_length` is a count.
-- `sig`, `sig3`, `sig4`, `sig5`, `sig6` are all highly skewed.
+- `sig3`, `sig4`, `sig5`, `sig6` are all highly skewed.
 
 I remove unique identifiers (but not `url_id`, which is ambiguous at this stage) from the training data because they will over-fit the data. 
 
@@ -152,7 +156,7 @@ plots <- lapply(feature_cols, function(col) create_conditioned_plot(train_transf
 grid.arrange(grobs = plots, ncol = 2)
 ```
 
-#### Proportions (Bayes) of Select Predictors Conditioned on Dependent Variables Deciles 
+#### Proportions of Select Predictors Conditioned on Dependent Variables Deciles 
 
 ```{r}
 #| fig-width: 12
@@ -277,11 +281,47 @@ corrplot(cor_matrix,
          col = colorRampPalette(c("#FC8D62", "white", "#66C2A5"))(100))
 ```
 
+#### Query Length
+
+Longer lenghts of query length has a very high proportion of relevant entries. I calculate standard errors to see whether these trends are statistically significant or may result in over-fitting. 
+
+```{r}
+library(dplyr)
+library(ggplot2)
+
+train %>%
+  group_by(query_length) %>%
+  summarise(
+    n = n(),
+    prop = mean(relevance == 1),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    se = sqrt(prop * (1 - prop) / n),
+    lower = prop - 1.96 * se,
+    upper = prop + 1.96 * se
+  ) %>%
+  ggplot(aes(x = as.numeric(as.character(query_length)), y = prop)) +
+  geom_point() +
+  geom_errorbar(aes(ymin = lower, ymax = upper), width = 0.3) +
+  geom_hline(yintercept = mean(train_transformed$relevance == 1),
+             linetype = "dashed", color = "red") +
+  labs(
+    x = "Query Length (words)",
+    y = "Proportion Relevant",
+    title = "Relevance Proportion by Query Length with 95% CI"
+  ) +
+  theme_minimal()
+```
+
+They are not statistically significant. 
+
+
 ## Pre-processing
 
 I code `is_homepage` as an unordered factor. 
 
-I code `query_length` as an unordered factor as well. The decile visualizaiton revealed that the proportion of relevant variables does not increase linearly in `query_length`, and it is therefore appropriate to break the ordinal scale to accomodate unequal distances between each coutn level. 
+I remove `query_length` because the most predictive lengths are also the most rare. It is sensible to represent `query_length` as a factor variable, because the proportion of relevance does not appear to increase linearly, but factors introduce various challenges with prediction. If some factor is not present in the future data, then our trained model will not work. For simpliciy, and because the longer lenghts are not statistically significant, I remove the variable. 
 
 `url_id` will need to be handled differently. The numeric scale is not sensible but neither are factors, which would lead to over-fitting. Ultimately, it seems risky to include data that may be idiosyncratic, so I exclude it for conservatism. 
 
@@ -297,7 +337,7 @@ preprocess_data <- function(data) {
  
  # Remove unique identifiers
  data_processed <- data %>%
-   select(-id, -query_id)
+   select(-id, -query_id, -query_length)
  
  # Remove url_id (idiosyncratic, risk of overfitting)
  data_processed <- data_processed %>%
@@ -305,11 +345,7 @@ preprocess_data <- function(data) {
  
  # Code is_homepage as unordered factor
  data_processed$is_homepage <- as.factor(data_processed$is_homepage)
- 
- # Code query_length as unordered factor 
- # (decile visualization revealed non-linear relationship with relevance)
- data_processed$query_length <- as.factor(data_processed$query_length)
- 
+
  return(data_processed)
 }
 
@@ -325,34 +361,34 @@ I apply the following transformations:
 - I use `log1p` from base R, which adds a constant of $1$ to each value to avoid issues with zeros.
 - The loss of the usual interpretability - where natural logs approximate percentage changes - is not important here.
 - Two-part transformation for `sig6`: create a dummy variable indicating zero values, then log-transform the positive values. This preserves the information in zeros (which show a higher proportion of relevance) while making the positive values less skewed.
-- Standardize all numeric variables in anticipation of using more flexible, distance-based modeling strategies.
+
+Note that I do not standardize at this stage. Since I will later use cross-validation, scaling of the variables should happen within each fold where appropriate. 
 
 ```{r}
-# Create a copy of the processed data
-train_transformed <- train_processed
-
-# Log-transform skewed variables: sig3, sig4, sig5
-train_transformed$log_sig3 <- log1p(train_transformed$sig3)
-train_transformed$log_sig4 <- log1p(train_transformed$sig4)
-train_transformed$log_sig5 <- log1p(train_transformed$sig5)
-
-# Handle sig6 specially due to many zeros
-train_transformed$sig6_is_zero <- as.integer(train_transformed$sig6 == 0)
-train_transformed$log_sig6_positive <- ifelse(train_transformed$sig6 > 0, 
-                                               log(train_transformed$sig6), 0)
-
-# Remove the original skewed variables
-train_transformed <- train_transformed %>%
-  select(-sig3, -sig4, -sig5, -sig6)
-
-# Standardize only continuous variables (not factors or binary)
-continuous_vars <- c("sig1", "sig2", "sig7", "sig8", 
-                    "log_sig3", "log_sig4", "log_sig5", "log_sig6_positive")
-
-for (var in continuous_vars) {
-  train_transformed[[var]] <- scale(train_transformed[[var]])[,1]
+# Function to apply transformations
+apply_transformations <- function(data_processed) {
+  # Create a copy of the processed data
+  data_transformed <- data_processed
+  
+  # Log-transform skewed variables: sig3, sig4, sig5
+  data_transformed$log_sig3 <- log1p(data_transformed$sig3)
+  data_transformed$log_sig4 <- log1p(data_transformed$sig4)
+  data_transformed$log_sig5 <- log1p(data_transformed$sig5)
+  
+  # Handle sig6 specially due to many zeros
+  data_transformed$sig6_is_zero <- as.integer(data_transformed$sig6 == 0)
+  data_transformed$log_sig6_pos
+  itive <- ifelse(data_transformed$sig6 > 0, 
+                                                log(data_transformed$sig6), 0)
+  
+  # Remove the original skewed variables
+  data_transformed <- data_transformed %>%
+    select(-sig3, -sig4, -sig5, -sig6)
+  
+  return(data_transformed)
 }
 
+train_transformed <- apply_transformations(train_processed)
 ```
 
 ## Data Mining
@@ -363,13 +399,21 @@ My modeling strategies are:
 
 1. LASSO logistic regression: Suitable for correlated predictors and sparse data to reduce variance. Factor variables are one-hot encoded. The tuning variable is $\lambda$, imposing a progressively higher penalty that shrinks coefficients towards zero. 
 2. KNN: A simple, intuitive method that makes minimal assumptions about the data’s functional form. Factor variables are one-hot encoded; the curse of dimensionality is not salient given the relatively low dimensions. The tuning variable is $k$, or the number of nearest neighbors. 
-3. Random Forests: Well-suited to low-dimensional tabular data and capable of capturing complex, nonlinear interactions automatically without needing the earlier transformations; especially attractive given apparent splines in some variables (`sig1`). Factor variables are not one-hot encoded because one-hot encoding increases the number of predictors, resulting in over-representation of factor variables by random forests. The tuning variable is `mtry`, or the number of predictors randomly sampled from all potential predictors. 
+3. Random Forests: Well-suited to low-dimensional tabular data and capable of capturing complex, nonlinear interactions automatically without needing the earlier transformations; especially attractive given apparent splines in some variables (`sig1`). Factor variables are not one-hot encoded because one-hot encoding increases the number of predictors, resulting in over-representation of factor variables by random forests. The tuning variable is `mtry`, or the number of predictors randomly sampled from all potential predictors, and the splitrule and the minimum node size, from the Ranger package:
 
-These methods each have the benefit of being relatively interpretable. Many models in the `caret` package automatically pick a variety of tuning parameters. I use this approach except in the case of KNN, where the default $k$ values were too low and therefore needed to be manually adjusted up. 
+```r
+rf_grid <- expand.grid(
+ mtry = c(2, 3, 4, 5, 8),  # Number of variables at each split
+ splitrule = c("gini", "extratrees"),  # Splitting rules
+ min.node.size = c(1, 5, 10, 20)  # Minimum node size
+)
+```
+
+These methods each have the benefit of being relatively interpretable. 
 
 ## Interpretation/Evaluation
 
-KNN performs the best. 
+Random forests performs the best, having the highest accuracy, but all models perform very similarly. 
 
 LASSO keeps many `query_length` dummy variables. The coefficients represent changes in the log odds ratio but analysts are discouraged from making inferences about them; it is a known feature of penalized regressions that correlated covariates may be included in the final model without having an underlying causal effect on the dependent variable. 
 
@@ -390,14 +434,14 @@ library(tidyverse)
 model_comparison <- data.frame(
   Model = c("LASSO", "KNN", "Random Forest"),
   CV_Accuracy = c(
-    round(1 - min(readRDS("lasso_model.rds")$cv_model$cvm), 4),
-    round(max(readRDS("knn_model.rds")$results$Accuracy), 4),
-    round(max(readRDS("rf_model.rds")$results$Accuracy), 4)
+    round(1 - min(readRDS("../models/lasso_model.rds")$cv_model$cvm), 4),
+    round(max(readRDS("../models/knn_model.rds")$results$Accuracy), 4),
+    round(max(readRDS("../models/rf_model.rds")$results$Accuracy), 4)
   ),
   Optimal_Parameter = c(
-    paste("λ =", round(readRDS("lasso_model.rds")$cv_model$lambda.min, 4)),
-    paste("k =", readRDS("knn_model.rds")$bestTune$k),
-    paste("mtry =", readRDS("rf_model.rds")$bestTune$mtry)
+    paste("λ =", round(readRDS("../models/lasso_model.rds")$cv_model$lambda.min, 4)),
+    paste("k =", readRDS("../models/knn_model.rds")$bestTune$k),
+    paste("mtry =", readRDS("../models/rf_model.rds")$bestTune$mtry)
   )
 )
 
@@ -423,7 +467,7 @@ library(knitr)
 library(kableExtra)
 
 # Load model
-lasso_results <- readRDS("lasso_model.rds")
+lasso_results <- readRDS("../models/lasso_model.rds")
 cv_lasso <- lasso_results$cv_model
 lasso_final <- lasso_results$final_model
 
@@ -506,7 +550,7 @@ ggplot(cv_data, aes(x = log_lambda)) +
 library(ggplot2)
 
 # Load model
-knn_model <- readRDS("knn_model.rds")
+knn_model <- readRDS("../models/knn_model.rds")
 
 # Plot accuracy vs k
 ggplot(knn_model$results, aes(x = k, y = Accuracy)) +
@@ -526,10 +570,10 @@ ggplot(knn_model$results, aes(x = k, y = Accuracy)) +
 library(randomForest)
 library(ggplot2)
 library(caret)
+library(dplyr)
 
 # Load model
 rf_model <- readRDS("rf_model.rds")
-
 
 # Plot accuracy vs mtry
 ggplot(rf_model$results, aes(x = mtry, y = Accuracy)) +
@@ -542,19 +586,76 @@ ggplot(rf_model$results, aes(x = mtry, y = Accuracy)) +
        y = "10-Fold CV Accuracy") +
   theme_minimal()
 
-# Variable importance
-importance_df <- varImp(rf_model)$importance
+# Variable importance - SIMPLIFIED
+importance_obj <- varImp(rf_model, scale = FALSE)
+importance_df <- as.data.frame(importance_obj$importance)
 importance_df$feature <- rownames(importance_df)
-importance_df <- importance_df[order(importance_df$Overall, decreasing = TRUE),]
 
-# Plot top 10 important features
+# Get the first column of importance (whatever it's named)
+importance_df$importance_value <- importance_df[,1]
+
+# Get top 10 and plot
 top10 <- head(importance_df, 10)
-ggplot(top10, aes(x = reorder(feature, Overall), y = Overall)) +
-  geom_bar(stat = "identity", fill = "darkgreen") +
-  coord_flip() +
-  labs(title = "Top 10 Important Features",
-       x = "Feature", y = "Importance") +
-  theme_minimal()
+
+ggplot(top10, aes(x = reorder(feature, importance_value), y = importance_value)) +
+ geom_bar(stat = "identity", fill = "darkgreen") +
+ coord_flip() +
+ labs(title = "Top 10 Important Features",
+      x = "Feature", y = "Importance") +
+ theme_minimal()
 ```
 
-## Git Repository 
+
+## Testing
+
+Code for creating the test dataframe is available in the Git Hub repository but hidden here. 
+
+There was some difficulty applying the final Random Forest model to the test data. Random Forest, in its Caret package form, requires identical factor levels. But I cannot ascertain what factor levels appear in the test data without peaking at it. Therefore, perhaps naively, I simply imposed the same factors from the training data preprocessing to the test data. 
+
+```{r}
+#| message: false
+#| warning: false
+
+library(caret)
+library(tidyverse)
+
+# Load test data
+test <- read.csv("../data/test.csv")
+
+test_processed <- preprocess_data(test)
+test_transformed <- apply_transformations(test_processed)
+
+# For KNN, need to convert to numeric matrix (one-hot encoding)
+X_test <- model.matrix(~ . - 1, data = test_transformed)
+
+# Load the KNN model
+knn_model <- readRDS("../models/knn_model.rds")
+
+# Make predictions
+predictions <- predict(knn_model, newdata = X_test)
+
+# Convert to binary
+predictions_binary <- as.integer(as.character(predictions))
+
+# Check prediction distribution
+cat("KNN Prediction Distribution:\n")
+cat("============================\n")
+cat("Mean predictions:", round(mean(predictions_binary), 3), "\n")
+cat("Proportion of 1s:", round(mean(predictions_binary), 3), "\n")
+cat("Proportion of 0s:", round(1 - mean(predictions_binary), 3), "\n\n")
+
+# Create submission
+submission <- data.frame(
+  id = test$id,
+  relevance = predictions_binary
+)
+
+# Save predictions
+write.csv(submission, "../data/bue-alex-knn-predictions.csv", row.names = FALSE)
+
+cat("Predictions saved to: bue-alex-knn-predictions.csv\n\n")
+
+# Show first 10 predictions
+cat("First 10 predictions:\n")
+print(head(submission, 10))
+```

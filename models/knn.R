@@ -13,18 +13,24 @@ y_train <- as.factor(train_transformed$relevance)
 # Specify larger k values to test
 # Start higher since large k is doing better
 k_values <- data.frame(
- k = c(41, 51, 71, 101, 151, 201, 251, 301, 401, 451)
+ k = seq(143, 159, by = 2)
 )
 
 # Run KNN with 10-fold CV
+# Add preProcess to scale within each fold (prevents data leakage)
 knn_model <- train(
-  x = X_train,
-  y = y_train,
-  method = "knn",
-  trControl = trainControl(method = "cv", number = 10),
-  tuneGrid = k_values  # Use specific k values instead of tuneLength
+ x = X_train,
+ y = y_train,
+ method = "knn",
+ preProcess = c("center", "scale"),  # Scale within each CV fold
+ trControl = trainControl(method = "cv", number = 10),
+ tuneGrid = k_values
 )
 
 # Save model
-saveRDS(knn_model, "knn_model.rds")
+saveRDS(knn_model, "../models/knn_model.rds")
 stopCluster(cl)
+
+# Print basic info
+cat("Best k:", knn_model$bestTune$k, "\n")
+cat("CV Accuracy:", max(knn_model$results$Accuracy), "\n")
