@@ -804,7 +804,7 @@ best_accuracy <- round(1 - cv_df$test_error_mean[cv_results$best_iteration], 4)
 
 A script for creating the test submissions is included in the GitHub Repository: https://github.com/24-bee-supply/stats-202-project.
 
-**## Conclusion**
+## Conclusion
 
 This was an instructive project. Textbooks, forums, and large language models have lowered the barriers to using the sophisticated data-mining techniques from this class. Most students’ results were relatively similar, but the top performers tended to share two strategies:
 
