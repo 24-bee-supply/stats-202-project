@@ -547,7 +547,7 @@ rf_grid <- expand.grid(
 )
 ```
 
-4. I also use boosting with XGBoost. The tuning parameters are below:
+4. I also use gradient boosting with XGBoost. The tuning parameters are below:
 
 ```r
 params <- list(
