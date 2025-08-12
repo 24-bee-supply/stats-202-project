@@ -15,9 +15,6 @@ execute:
  message: false
 ---
 
-## Summary
-
-
 ## Selection
 
 I conduct visualizations first. Some initial data exploration shows:
@@ -341,9 +338,6 @@ for(i in 2:nrow(train_clean)) {
     break
   }
 }
-
-cat("Crossing point at URL ID:", crossing_point, "\n")
-
 # Plot
 library(viridis)
 colors <- viridis(3)
@@ -367,7 +361,7 @@ I code `is_homepage` as an unordered factor.
 
 I remove `query_length` because the most predictive lengths are also the most rare. It is sensible to represent `query_length` as a factor variable, because the proportion of relevance does not appear to increase linearly, but factors introduce various challenges with prediction. If some factor is not present in the future data, then our trained model will not work. A compromise is necessary. 
 
-`url_id` will need to be handled differently. The numeric scale is not sensible but neither are factors, which would lead to over-fitting. Ultimately, it seems risky to include data that may be idiosyncratic, so I exclude it for conservatism. 
+`url_id` will need to be handled differently. The numeric scale is not sensible but neither are factors, which would lead to over-fitting. Ultimately, it seems risky to include data that may be idiosyncratic, but I retain it because the stakes here are relatively low. 
 
 `sig2, sig7, and sig8` appear to have regular drop-offs in the histograms. This is an artifact of the measurement scale, which records values in increments of $0.01$. Some histogram bins therefore align with the allowed values and receive higher counts, while others fall between these values and receive few or none, producing the visible pattern of regular dips. This is not a problem for analysis. 
 
@@ -444,6 +438,97 @@ apply_transformations <- function(data_processed) {
 train_transformed <- apply_transformations(train_processed)
 ```
 
+```{r}
+#| message: false
+#| warning: false
+library(knitr)
+library(kableExtra)
+
+# Create a table of transformed variables
+transformed_vars <- data.frame(
+  Variable = c(
+    "relevance",
+    "is_homepage",
+    "sig1",
+    "sig2",
+    "log_sig3",
+    "log_sig4", 
+    "log_sig5",
+    "sig6_is_zero",
+    "log_sig6_positive",
+    "sig7",
+    "sig8",
+    "single_word_query",
+    "two_word_query",
+    "three_word_query",
+    "low_url_id"
+  ),
+  Type = c(
+    "Binary",
+    "Factor",
+    "Continuous",
+    "Continuous",
+    "Continuous",
+    "Continuous",
+    "Continuous",
+    "Binary",
+    "Continuous",
+    "Continuous",
+    "Continuous",
+    "Binary",
+    "Binary",
+    "Binary",
+    "Binary"
+  ),
+  Description = c(
+    "Target variable (0 = not relevant, 1 = relevant)",
+    "Whether the URL is a homepage",
+    "Original signal feature 1",
+    "Original signal feature 2",
+    "Log-transformed sig3",
+    "Log-transformed sig4",
+    "Log-transformed sig5",
+    "Indicator for sig6 = 0",
+    "Log of sig6 when positive",
+    "Original signal feature 7",
+    "Original signal feature 8",
+    "Query length = 1",
+    "Query length = 2",
+    "Query length = 3",
+    "URL ID < 30000"
+  ),
+  Transformation = c(
+    "None",
+    "Factor",
+    "None",
+    "None",
+    "log1p(sig3)",
+    "log1p(sig4)",
+    "log1p(sig5)",
+    "sig6 == 0",
+    "log(sig6) if sig6 > 0",
+    "None",
+    "None",
+    "query_length == 1",
+    "query_length == 2",
+    "query_length == 3",
+    "url_id < 30000"
+  )
+)
+
+# Display the table
+transformed_vars %>%
+  kable(
+    caption = "Summary of Transformed Variables for Modeling",
+    col.names = c("Variable", "Type", "Description", "Transformation"),
+    align = c("l", "c", "l", "l")
+  ) %>%
+  kable_styling(
+    bootstrap_options = c("striped", "hover"),
+    full_width = TRUE
+  )
+```
+
 ## Data Mining
 
 I will use 10-fold cross-validation to estimate generalization error for each modeling strategy. In all cases, I will evaluate model accuracy, picking the tuning parameters and then the strategy which maximizes accuracy. 
@@ -474,6 +559,8 @@ params <- list(
   colsample_bytree = 0.8
 )
 ```
+
+Computational constraints limit somewhat my range of tuning parameters. 
 
 ## Interpretation/Evaluation
 
@@ -711,10 +798,25 @@ importance_matrix %>%
 
 # Print accuracy
 best_accuracy <- round(1 - cv_df$test_error_mean[cv_results$best_iteration], 4)
-cat("XGBoost CV Accuracy:", best_accuracy, "\n")
 ```
-
 
 ## Testing
 
 A script for creating the test submissions is included in the GitHub Repository: https://github.com/24-bee-supply/stats-202-project.
+
+**## Conclusion**
+
+This was an instructive project. Textbooks, forums, and large language models have lowered the barriers to using the sophisticated data-mining techniques from this class. Most students’ results were relatively similar, but the top performers tended to share two strategies:
+
+1. They engineered new features.
+2. They iterated on their initial best-performing model.
+
+My approach was more modest. I prioritized visualizing the data to better understand its functional form. I had assumed this emphasis would be relatively unique given the temptation to simply train a large, powerful neural network. But my efforts were incomplete. The log-transformations I applied, as noted earlier, theoretically mattered for linear models but not for more flexible ones. My attempts to find “signal” in the noise through data exploration should have been more analytical and model-agnostic. Including `url_id` was also almost certainly a mistake. 
+
+This experience highlights areas where I am eager to grow as a data scientist, particularly in embeddings, careful attention to the test data distribution, and quantifying over-fitting.
+
+Dr. Tranh helped solidify a critical but, until recently, under-appreciated concept for me: it is important to make learning as easy as possible for the model. Powerful, flexible modeling strategies do not remove the need to understand and thoughtfully shape your data so that the problem is better-conditioned. Statistically, sprawling and complex models may achieve low bias but often at the cost of high variance, a pattern evident in the Kaggle competition’s private scores. Every machine learning course covers the bias-variance decomposition, but recognizing why simplicity matters in practice is, I think, a hallmark of mature modeling. Of course, it is also possible that I am wrong and complexity often pays. This is an area I am excited to explore.
+
+Dr. Tranh’s emphasis on understanding your test data, even gaming the system if possible, was another important lesson. At various points in my analysis, especially involving the `url_id` and `query_length` variables, it occurred to me that certain assumptions might not generalize. Dogmatically, I refused to model the test data, but in real-world applications it is important to investigate whether your training data actually resembles the test data.
+
+Finally, I am eager to learn more about learning curves and other diagnostics of over-fitting. It is easy to run cross-validation, optimize a loss function, and conclude that a model is adequate. I want to go further—developing analyses that quantify over-fitting and pinpoint how and where a model fails compared to alternatives. For example, the team that won the first stage of the competition but lost the second likely relied on cross-validation to estimate generalization error, yet their model underperformed against one that remained consistent across both stages. I want to understand and apply diagnostics that can detect such issues, even when the modeling process appears rigorous.
