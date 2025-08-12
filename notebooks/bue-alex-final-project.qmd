@@ -3,16 +3,21 @@ title: "STATS202 Final Project"
 author: "Bue, Alex"
 date: today
 format: 
- html:
-   toc: true
-   code-links:
-     - text: "GitHub Repository"
-       icon: github
-       href: https://github.com/24-bee-supply/stats-202-project
+  html:
+    toc: true
+    code-links:
+      - text: "GitHub Repository"
+        icon: github
+        href: https://github.com/24-bee-supply/stats-202-project
+  pdf:
+    toc: true
+    toc-depth: 2
+    documentclass: article
+    geometry: margin=1in
 execute:
- echo: false
- warning: false
- message: false
+  echo: false
+  warning: false
+  message: false
 ---
 
 ## Selection
@@ -550,17 +555,16 @@ rf_grid <- expand.grid(
 4. I also use gradient boosting with XGBoost. The tuning parameters are below:
 
 ```r
-params <- list(
-  objective = "binary:logistic",
-  eval_metric = "error",
-  max_depth = 6,
-  eta = 0.1,
-  subsample = 0.8,
-  colsample_bytree = 0.8
+cv <- xgb.cv(
+  params = params,
+  data = dtrain,
+  nrounds = 150,
+  nfold = 10,
+  early_stopping_rounds = 10,
+  verbose = FALSE
 )
 ```
-
-Computational constraints limit somewhat my range of tuning parameters. 
+Computational constraints limit somewhat my range of tuning parameters. I do not tune probability thresholds, though this would be an obvious next step in my analysis. Boosting could be tuned with more options, not just the number of rounds. 
 
 ## Interpretation/Evaluation
 
